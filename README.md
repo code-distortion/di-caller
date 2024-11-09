@@ -6,13 +6,11 @@
 [![Buy The World a Tree](https://img.shields.io/badge/treeware-%F0%9F%8C%B3-lightgreen?style=flat-square)](https://plant.treeware.earth/code-distortion/di-caller)
 [![Contributor Covenant](https://img.shields.io/badge/contributor%20covenant-v2.1%20adopted-ff69b4.svg?style=flat-square)](.github/CODE_OF_CONDUCT.md)
 
-***code-distortion/di-caller*** is PHP package that calls callables/callbacks/hooks, using dependency injection to resolve their parameters.
+***code-distortion/di-caller*** is a PHP package that calls callables / callbacks / hooks, using dependency injection to resolve their parameters.
 
-This package is useful for calling callbacks when your code provides a set of possible parameters, but you don't know which ones are actually required by the callback.
+I built this to use in my own packages, where the caller can pass callbacks and I don't know which parameters they need exactly. This package lets you specify the parameters you want to provide, and it resolves them at call-time.
 
-For example, when you're working on a package that lets callers register callbacks. You can use this package to call those callbacks, passing in the relevant parameters your package wants to provide.
-
-It doesn't use a Dependency Container like those used in frameworks. It resolves the parameters for each callable individually. It doesn't store them for other callables to use later.
+It isn't a Dependency Injection Container like those used in frameworks. Each callable is dealt with individually.
 
 
 
@@ -39,26 +37,33 @@ composer require code-distortion/di-caller
 
 There are three steps to using this package:
 
-- Create a `DICaller` instance, passing a callable to it,
-- Register the parameters you'd like to make available to the callable via dependency injection,
+- Create a `DICaller` instance, passing a *callable* to it,
+- Register the parameters you'd like to make available to the callable,
 - Execute the callable using `->call()`.
 
-You can register parameters by **type**:
+`DICaller` will match the parameters you've registered to the callable's signature.
+
+You can register parameters by **type**, which supports class-type and variable type (integer, string, etc.):
 
 ```php
 use CodeDistortion\DICaller\DICaller;
 
-$callable = fn(Request $request, User $user) => "hello $user->name ({$request->getIp()})";
+$callable = fn(Request $request, User $user, float $duration)
+  => "$user->name ({$request->getIp()}) - $duration seconds";
 
 $user = new User();
 $request = new Request();
 $shoppingCart = new ShoppingCart();
+$someId = 10;
+$duration = 4.55;
 
 $result = DICaller::new($callable)
     ->registerByType($user)         // <<<
     ->registerByType($request)      // <<<
     ->registerByType($shoppingCart) // <<<
-    ->call(); // 'hello Bob (192.168.1.1)'
+    ->registerByType($someId)       // <<<
+    ->registerByType($duration)     // <<<
+    ->call(); // 'Bob (192.168.1.1) - 4.55 seconds'
 ```
 
 You can register parameters by **name**:
@@ -130,7 +135,7 @@ $result = DICaller::new($callable)
 
 ### Validation
 
-You can check that the callable is actually *callable*, and the parameters resolve before calling `->call()`, using `->isCallable()`:
+Before calling `->call()`, you can check that the callable is actually *callable*, and the parameters resolve using `->canCall()`:
 
 ```php
 use CodeDistortion\DICaller\DICaller;
@@ -138,7 +143,7 @@ use CodeDistortion\DICaller\DICaller;
 $callable = fn($param1, $param2) => "$param1 $param2";
 
 $caller = DICaller::new($callable);
-if ($caller->isCallable()) { // false
+if ($caller->canCall()) { // false
     $result = $caller->call();
 }
 ```
