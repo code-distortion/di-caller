@@ -270,10 +270,14 @@ class DICaller
         // as of PHP 8.3, ReflectionType will only be one of these 3 types
         /** @var ReflectionNamedType|ReflectionUnionType|ReflectionIntersectionType $reflectionType */
 
+        // ReflectionNamedType …
+
         // check to see if the parameter matches the single NAMED TYPE
         if ($reflectionType instanceof ReflectionNamedType) {
             return $this->doesTypedParameterMatchReflectionNamedType($possibleParameter, $reflectionType);
         }
+
+        // ReflectionUnionType …
 
         // check to see if the parameter matches one of the types in the UNION
         if ($reflectionType instanceof ReflectionUnionType) {
@@ -284,6 +288,8 @@ class DICaller
             }
             return false;
         }
+
+        // ReflectionIntersectionType …
 
         // check to see if the parameter matches all of the types in the INTERSECTION
         // Note: to improve code coverage and PHPStan checking, assume that
@@ -313,7 +319,7 @@ class DICaller
 
         if ($isNativePHPType) {
 
-            // gettype() returns different type names to those used by PHP
+            // gettype() returns different type names to the variable type names
             $actualType = gettype($possibleParameter);
             $actualType = match ($actualType) {
                 'integer' => 'int',
@@ -337,7 +343,7 @@ class DICaller
      *
      * @return boolean
      */
-    public function isCallable(): bool
+    public function canCall(): bool
     {
         try {
             $this->prepareReflectionInstance();
@@ -346,6 +352,8 @@ class DICaller
 
         return ($this->resolveParameters() !== false);
     }
+
+
 
     /**
      * Call the callable (provided it resolves), substituting the parameters where necessary.
@@ -356,7 +364,7 @@ class DICaller
      */
     public function callIfPossible(): mixed
     {
-        return $this->isCallable()
+        return $this->canCall()
             ? $this->call()
             : null;
     }

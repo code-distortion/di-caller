@@ -582,12 +582,12 @@ class DICallerUnitTest extends PHPUnitTestCase
     public static function test_is_resolvable_and_call_methods(): void
     {
         $assertIsResolvable = function (DICaller $caller): void {
-            self::assertTrue($caller->isCallable());
+            self::assertTrue($caller->canCall());
             self::assertTrue($caller->call());
             self::assertTrue($caller->callIfPossible());
         };
         $assertIsNotResolvable = function (DICaller $caller): void {
-            self::assertFalse($caller->isCallable());
+            self::assertFalse($caller->canCall());
             self::assertNull($caller->callIfPossible());
 
             $caughtException = false;
