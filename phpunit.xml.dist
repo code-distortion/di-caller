@@ -30,7 +30,7 @@
   processIsolation="false"
   requireCoverageMetadata="false"
   stopOnDefect="true"
-  stopOnDeprecation="true"
+  stopOnDeprecation="false"
   stopOnError="true"
   stopOnFailure="true"
   stopOnIncomplete="false"
