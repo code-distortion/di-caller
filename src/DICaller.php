@@ -224,7 +224,7 @@ class DICaller
         }
 
         // check to see if the parameter even has a type specified
-        if (!$reflectionParam->getType()) {
+        if (is_null($reflectionParam->getType())) {
             return false;
         }
 
@@ -334,7 +334,7 @@ class DICaller
                 default => $actualType,
             };
 
-            return ($actualType == $typeHint);
+            return ($actualType === $typeHint);
         }
 
         return ($possibleParameter instanceof $typeHint);

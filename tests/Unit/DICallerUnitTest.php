@@ -135,7 +135,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             // only detect the exception if there's no previous exception,
             // meaning the DICaller checking picked up the problem rather
             // than the input being passed to ReflectionMethod
-            if (!$e->getPrevious()) {
+            if (is_null($e->getPrevious())) {
                 $caughtException = true;
             }
         }
