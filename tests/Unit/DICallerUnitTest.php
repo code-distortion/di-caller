@@ -123,6 +123,23 @@ class DICallerUnitTest extends PHPUnitTestCase
         /** @var ClassForCaller $return */
         $return = DICaller::new($callable)->registerByPosition(0, $passing)->call();
         self::assertSame($passing, $return->getValue());
+
+        // where the first element is NOT an object or string
+        $passing = mt_rand();
+        $callable = [1234, '__invoke']; // array [integer, non-static-method]
+        $caughtException = false;
+        try {
+            /** @phpstan-ignore-next-line */
+            DICaller::new($callable)->registerByPosition(0, $passing)->call();
+        } catch (DICallerInvalidCallableException $e) {
+            // only detect the exception if there's no previous exception,
+            // meaning the DICaller checking picked up the problem rather
+            // than the input being passed to ReflectionMethod
+            if (!$e->getPrevious()) {
+                $caughtException = true;
+            }
+        }
+        self::assertTrue($caughtException);
     }
 
     /**
@@ -676,7 +693,3 @@ class DICallerUnitTest extends PHPUnitTestCase
         self::assertTrue($caughtException);
     }
 }
-
-//if (version_compare(PHP_VERSION, '8.2', '>=')) {
-//    require_once __DIR__ . '/DICallerUnitTestForPHP82Plus.php';
-//}

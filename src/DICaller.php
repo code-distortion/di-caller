@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace CodeDistortion\DICaller;
 
 use CodeDistortion\DICaller\Exceptions\DICallerInvalidCallableException;
@@ -35,15 +37,14 @@ class DICaller
     /** @var array<string|integer, mixed> The parameters to pass to the callable, based on their position. */
     private array $positionalParameters = [];
 
-    /** @var array<string|integer, mixed>|false|null The parameters, resolved for the callable. */
-    private array|false|null $resolvedParameters = null;
+    /** @var array<string|integer, mixed>|null The parameters, resolved for the callable. */
+    private array|null $resolvedParameters = null;
 
 
     /**
      * Constructor
      *
      * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string $callable The callable to call.
-     * @throws DICallerInvalidCallableException When the callable is not callable.
      */
     public function __construct(callable|object|array|string $callable)
     {
@@ -55,7 +56,6 @@ class DICaller
      *
      * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string $callable The callable to call.
      * @return self
-     * @throws DICallerInvalidCallableException When the callable is not callable.
      */
     public static function new(callable|object|array|string $callable): self
     {
@@ -138,17 +138,23 @@ class DICaller
             // array callable
             if (is_array($callable)) {
                 [$class, $method] = $callable;
-                return new ReflectionMethod($class, $method);
-            }
+                if ((is_string($class)) || (is_object($class))) {
+                    if (is_string($method)) {
+                        return new ReflectionMethod($class, $method);
+                    }
+                }
 
             // callable class (i.e. implements __invoke())
-            if ((is_object($callable)) && (method_exists($callable, '__invoke'))) {
-                return new ReflectionMethod($callable, '__invoke');
-            }
+            } elseif (is_object($callable)) {
+                if (method_exists($callable, '__invoke')) {
+                    return new ReflectionMethod($callable, '__invoke');
+                }
 
             // standard function (string)
-            if ((is_string($callable)) && (function_exists($callable))) {
-                return new ReflectionFunction($callable);
+            } elseif (is_string($callable)) {
+                if (function_exists($callable)) {
+                    return new ReflectionFunction($callable);
+                }
             }
 
         } catch (ReflectionException $e) {
@@ -378,7 +384,12 @@ class DICaller
      */
     public function call(): mixed
     {
-        $this->prepareReflectionInstance();
+        // try / catch to make it explicit for phpcs
+        try {
+            $this->prepareReflectionInstance();
+        } catch (DICallerInvalidCallableException $e) {
+            throw $e;
+        }
 
         $params = $this->resolveParameters();
         if ($params === false) {
