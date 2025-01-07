@@ -155,7 +155,7 @@ use CodeDistortion\DICaller\DICaller;
 
 $callable = fn($param1, $param2) => "$param1 $param2";
 
-$result = DICaller::new($callable)->callIfPossible(); // null
+$result = DICaller::new($callable)->callIfPossible(); // null - because $param1 and $param2 are unresolved
 ```
 
 > ***Note:*** This will return `null` when the call isn't possible, which isn't distinguishable from a successful call that returns `null`.
