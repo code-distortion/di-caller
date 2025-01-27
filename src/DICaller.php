@@ -21,7 +21,7 @@ use ReflectionUnionType;
  */
 class DICaller
 {
-    /** @var callable|object|array{0:string,1:string}|array{0:object,1:string}|string The callable to call. */
+    /** @var callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null The callable to call. */
     private $callable;
 
     /** @var ReflectionFunctionAbstract|null Reflection of $callable. */
@@ -44,9 +44,10 @@ class DICaller
     /**
      * Constructor
      *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string $callable The callable to call.
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
+     *                                                                                                call.
      */
-    public function __construct(callable|object|array|string $callable)
+    public function __construct(callable|object|array|string|null $callable)
     {
         $this->callable = $callable;
     }
@@ -54,10 +55,11 @@ class DICaller
     /**
      * Alternate constructor
      *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string $callable The callable to call.
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
+     *                                                                                                call.
      * @return self
      */
-    public static function new(callable|object|array|string $callable): self
+    public static function new(callable|object|array|string|null $callable): self
     {
         return new self($callable);
     }
@@ -127,11 +129,12 @@ class DICaller
     /**
      * Build a ReflectionFunctionAbstract for the given callable.
      *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string $callable The callable to call.
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
+     *                                                                                                call.
      * @return ReflectionFunctionAbstract
      * @throws DICallerInvalidCallableException When the callable is not callable.
      */
-    private function buildReflectionInstance(callable|object|array|string $callable): ReflectionFunctionAbstract
+    private function buildReflectionInstance(callable|object|array|string|null $callable): ReflectionFunctionAbstract
     {
         try {
 
@@ -179,6 +182,7 @@ class DICaller
             return false;
         }
 
+        // return cached
         if (!is_null($this->resolvedParameters)) {
             return $this->resolvedParameters;
         }

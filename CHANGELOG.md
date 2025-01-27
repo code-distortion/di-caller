@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 
 
+## [0.2.2] - 2025-01-27
+
+### Added
+- Added ability to pass null instead of a callable. It's an invalid callable, but in the case of other libraries that use this package, it's useful to be able to pass null sometimes
+
+
+
 ## [0.2.1] - 2024-12-17
 
 ### Added

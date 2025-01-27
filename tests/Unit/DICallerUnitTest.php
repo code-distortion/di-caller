@@ -94,14 +94,14 @@ class DICallerUnitTest extends PHPUnitTestCase
     }
 
     /**
-     * Test that a callable array can be called.
+     * Test that a callable array containing a class or object can be called.
      *
      * @test
      *
      * @return void
      */
     #[Test]
-    public static function test_passing_a_callable_array_containing_a_class(): void
+    public static function test_passing_a_callable_array_containing_a_class_or_object(): void
     {
         // where the first element is a class name string - and the method is static
         $passing = mt_rand();
@@ -150,7 +150,7 @@ class DICallerUnitTest extends PHPUnitTestCase
      * @return void
      */
     #[Test]
-    public static function test_invokable_object(): void
+    public static function test_passing_an_invokable_object(): void
     {
         $passing = mt_rand();
         $callable = new ClassForCaller();
@@ -167,7 +167,7 @@ class DICallerUnitTest extends PHPUnitTestCase
      * @return void
      */
     #[Test]
-    public static function test_callable_function_string(): void
+    public static function test_passing_a_callable_function_string(): void
     {
         $passing = [1, 2, 3];
         $callable = 'array_sum';
@@ -183,8 +183,18 @@ class DICallerUnitTest extends PHPUnitTestCase
      * @return void
      */
     #[Test]
-    public static function test_invalid_callables(): void
+    public static function test_passing_invalid_callables(): void
     {
+        // trigger an exception by passing null
+        $caughtException = false;
+        try {
+            DICaller::new(null)->call();
+        } catch (DICallerInvalidCallableException $e) {
+            $caughtException = true;
+            self::assertNull($e->getPrevious());
+        }
+        self::assertTrue($caughtException);
+
         // trigger an exception by triggering a ReflectionException
         $caughtException = false;
         try {
