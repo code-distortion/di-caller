@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // these tests would be inside DICallerTest::test_register_parameters_by_type()
-// however they use syntax introduced in PHP 8.1, so they're in a separate file
+// however they use syntax introduced in PHP 8.2, so they're in a separate file
 // allowing for them to be skipped if the PHP version is too low
 
 use CodeDistortion\DICaller\DICaller;

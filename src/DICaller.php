@@ -25,20 +25,20 @@ class DICaller
     private $callable;
 
     /** @var ReflectionFunctionAbstract|null Reflection of $callable. */
-    private ?ReflectionFunctionAbstract $callableReflection = null;
+    private $callableReflection = null;
 
 
     /** @var array<string|integer, mixed> The parameters to pass to the callable, based on the parameter name. */
-    private array $namedParameters = [];
+    private $namedParameters = [];
 
     /** @var array<string|integer, mixed> The parameters to pass to the callable, based on the type. */
-    private array $typedParameters = [];
+    private $typedParameters = [];
 
     /** @var array<string|integer, mixed> The parameters to pass to the callable, based on their position. */
-    private array $positionalParameters = [];
+    private $positionalParameters = [];
 
     /** @var array<string|integer, mixed>|null The parameters, resolved for the callable. */
-    private array|null $resolvedParameters = null;
+    private $resolvedParameters = null;
 
 
     /**
@@ -47,7 +47,7 @@ class DICaller
      * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
      *                                                                                                call.
      */
-    public function __construct(callable|object|array|string|null $callable)
+    public function __construct($callable)
     {
         $this->callable = $callable;
     }
@@ -59,7 +59,7 @@ class DICaller
      *                                                                                                call.
      * @return self
      */
-    public static function new(callable|object|array|string|null $callable): self
+    public static function new($callable): self
     {
         return new self($callable);
     }
@@ -75,7 +75,7 @@ class DICaller
      * @param mixed   $parameter The parameter to register.
      * @return $this
      */
-    public function registerByPosition(int $position, mixed $parameter): self
+    public function registerByPosition(int $position, $parameter): self
     {
         $this->positionalParameters[$position] = $parameter;
         $this->resolvedParameters = null;
@@ -89,7 +89,7 @@ class DICaller
      * @param mixed  $parameter The parameter to register.
      * @return $this
      */
-    public function registerByName(string $name, mixed $parameter): self
+    public function registerByName(string $name, $parameter): self
     {
         $this->namedParameters[$name] = $parameter;
         $this->resolvedParameters = null;
@@ -102,7 +102,7 @@ class DICaller
      * @param mixed $parameter The parameter to register.
      * @return $this
      */
-    public function registerByType(mixed $parameter): self
+    public function registerByType($parameter): self
     {
         $this->typedParameters[] = $parameter;
         $this->resolvedParameters = null;
@@ -121,9 +121,11 @@ class DICaller
      * @return void
      * @throws DICallerInvalidCallableException When the callable is not callable.
      */
-    private function prepareReflectionInstance(): void
+    private function prepareReflectionInstance()
     {
-        $this->callableReflection ??= $this->buildReflectionInstance($this->callable);
+        // @infection-ignore-all ??= -> =
+        // (the result is the same so it won't throw an exception)
+        $this->callableReflection = $this->callableReflection ?? $this->buildReflectionInstance($this->callable);
     }
 
     /**
@@ -134,13 +136,16 @@ class DICaller
      * @return ReflectionFunctionAbstract
      * @throws DICallerInvalidCallableException When the callable is not callable.
      */
-    private function buildReflectionInstance(callable|object|array|string|null $callable): ReflectionFunctionAbstract
+    private function buildReflectionInstance($callable): ReflectionFunctionAbstract
     {
         try {
 
             // array callable
             if (is_array($callable)) {
-                [$class, $method] = $callable;
+
+                $class = array_values($callable)[0];
+                $method = array_values($callable)[1];
+
                 if ((is_string($class)) || (is_object($class))) {
                     if (is_string($method)) {
                         return new ReflectionMethod($class, $method);
@@ -176,7 +181,7 @@ class DICaller
      *
      * @return array<string|integer, mixed>|false
      */
-    private function resolveParameters(): array|false
+    private function resolveParameters()
     {
         if (is_null($this->callableReflection)) {
             return false;
@@ -206,7 +211,7 @@ class DICaller
      * @param mixed               $resolvedParameter The parameter once resolved.
      * @return boolean
      */
-    private function resolveParameter(ReflectionParameter $reflectionParam, mixed &$resolvedParameter): bool
+    private function resolveParameter(ReflectionParameter $reflectionParam, &$resolvedParameter): bool
     {
         // check the POSITIONAL parameters
         $position = $reflectionParam->getPosition();
@@ -248,7 +253,7 @@ class DICaller
      * @param mixed               $resolvedParameter The parameter once resolved.
      * @return boolean
      */
-    private function findReflectionTypeMatch(ReflectionType|null $reflectionType, mixed &$resolvedParameter): bool
+    private function findReflectionTypeMatch($reflectionType, &$resolvedParameter): bool
     {
         if (is_null($reflectionType)) {
             return false;
@@ -272,19 +277,23 @@ class DICaller
      * @return boolean
      */
     private function doesTypedParameterMatchReflectionType(
-        mixed $possibleParameter,
-        ReflectionType $reflectionType,
+        $possibleParameter,
+        ReflectionType $reflectionType
     ): bool {
 
         // help with code coverage and PHPStan checking
         // as of PHP 8.3, ReflectionType will only be one of these 3 types
-        /** @var ReflectionNamedType|ReflectionUnionType|ReflectionIntersectionType $reflectionType */
+        /** @var ReflectionNamedType|ReflectionUnionType|ReflectionIntersectionType|ReflectionType $reflectionType */
 
         // ReflectionNamedType …
 
         // check to see if the parameter matches the single NAMED TYPE
         if ($reflectionType instanceof ReflectionNamedType) {
-            return $this->doesTypedParameterMatchReflectionNamedType($possibleParameter, $reflectionType);
+            return $this->doesTypedParameterMatchType(
+                $possibleParameter,
+                $reflectionType->getName(),
+                $reflectionType->isBuiltin()
+            );
         }
 
         // ReflectionUnionType …
@@ -301,42 +310,55 @@ class DICaller
 
         // ReflectionIntersectionType …
 
-        // check to see if the parameter matches all of the types in the INTERSECTION
-        // Note: to improve code coverage and PHPStan checking, assume that
-        // $reflectionType is a ReflectionIntersectionType by this point
-        foreach ($reflectionType->getTypes() as $childReflectionType) {
-            if (!$this->doesTypedParameterMatchReflectionType($possibleParameter, $childReflectionType)) {
-                return false;
+        // check to see if the parameter matches ALL of the types in the INTERSECTION
+        if ($reflectionType instanceof ReflectionIntersectionType) {
+            foreach ($reflectionType->getTypes() as $childReflectionType) {
+                if (!$this->doesTypedParameterMatchReflectionType($possibleParameter, $childReflectionType)) {
+                    return false;
+                }
             }
+            return true;
         }
-        return true;
+
+
+
+        // for versions of PHP before 7.1
+        // Note: to improve code coverage and PHPStan checking, assume that $reflectionType is a ReflectionType
+        // by this point, which is the original class that PHP 7.0 used before they were split out into separate
+        // child classes
+        $typeHint = (string) $reflectionType;
+        $isNativePHPType = method_exists($reflectionType, 'isBuiltin')
+            ? (bool) $reflectionType->isBuiltin()
+            : true;
+        return $this->doesTypedParameterMatchType(
+            $possibleParameter,
+            $typeHint,
+            $isNativePHPType
+        );
     }
 
     /**
      * Check to see if a TYPED parameter matches the given ReflectionNamedType.
      *
-     * @param mixed               $possibleParameter   The parameter to check.
-     * @param ReflectionNamedType $reflectionNamedType The type to match.
+     * @param mixed   $possibleParameter The parameter to check.
+     * @param string  $typeHint          The type to match.
+     * @param boolean $isNativePHPType   Whether the type is a native PHP type or not.
      * @return boolean
      */
-    private function doesTypedParameterMatchReflectionNamedType(
-        mixed $possibleParameter,
-        ReflectionNamedType $reflectionNamedType,
-    ): bool {
-
-        $isNativePHPType = $reflectionNamedType->isBuiltin();
-        $typeHint = $reflectionNamedType->getName();
-
+    private function doesTypedParameterMatchType($possibleParameter, string $typeHint, bool $isNativePHPType): bool
+    {
         if ($isNativePHPType) {
 
-            // gettype() returns different type names to the variable type names
             $actualType = gettype($possibleParameter);
-            $actualType = match ($actualType) {
-                'integer' => 'int',
-                'double' => 'float',
-                'boolean' => 'bool',
-                default => $actualType,
-            };
+
+            // gettype() returns different type names to the variable type names
+            if ($actualType === 'integer') {
+                $actualType = 'int';
+            } elseif ($actualType === 'double') {
+                $actualType = 'float';
+            } elseif ($actualType === 'boolean') {
+                $actualType = 'bool';
+            }
 
             return ($actualType === $typeHint);
         }
@@ -357,7 +379,7 @@ class DICaller
     {
         try {
             $this->prepareReflectionInstance();
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
 
         return ($this->resolveParameters() !== false);
@@ -372,7 +394,7 @@ class DICaller
      *
      * @return mixed
      */
-    public function callIfPossible(): mixed
+    public function callIfPossible()
     {
         return $this->canCall()
             ? $this->call()
@@ -386,7 +408,7 @@ class DICaller
      * @throws DICallerInvalidCallableException When the callable is not callable.
      * @throws DICallerUnresolvableParametersException When the parameters could not be resolved.
      */
-    public function call(): mixed
+    public function call()
     {
         // try / catch to make it explicit for phpcs
         try {

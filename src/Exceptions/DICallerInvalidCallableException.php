@@ -17,10 +17,10 @@ class DICallerInvalidCallableException extends DICallerException
      * @param Throwable|null $previous The previous exception used for the exception chaining.
      * @return self
      */
-    public static function notCallable(?Throwable $previous = null): self
+    public static function notCallable($previous = null): self
     {
         return !is_null($previous)
-            ? new self('The $callable is not callable', previous: $previous)
+            ? new self('The $callable is not callable', 0, $previous)
             : new self('The $callable is not callable');
     }
 }

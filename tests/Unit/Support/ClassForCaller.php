@@ -10,7 +10,7 @@ namespace CodeDistortion\DICaller\Tests\Unit\Support;
 class ClassForCaller
 {
     /** @var mixed The value passed to the class. */
-    private mixed $value;
+    private $value;
 
 
 
@@ -20,7 +20,7 @@ class ClassForCaller
      * @param mixed $value The initial value to store.
      * @return void
      */
-    public function __construct(mixed $value = null)
+    public function __construct($value = null)
     {
         $this->value = $value;
     }
@@ -31,7 +31,7 @@ class ClassForCaller
      * @param mixed $value The initial value to store.
      * @return self
      */
-    public static function new(mixed $value): self
+    public static function new($value): self
     {
         return new self($value);
     }
@@ -42,7 +42,7 @@ class ClassForCaller
      * @param mixed $value The initial value to store.
      * @return self
      */
-    public function __invoke(mixed $value): self
+    public function __invoke($value): self
     {
         $this->setValue($value);
         return $this;
@@ -54,7 +54,7 @@ class ClassForCaller
      * @param mixed $value The new value to store.
      * @return self
      */
-    public function setValue(mixed $value): self
+    public function setValue($value): self
     {
         $this->value = $value;
         return $this;
@@ -65,7 +65,7 @@ class ClassForCaller
      *
      * @return mixed
      */
-    public function getValue(): mixed
+    public function getValue()
     {
         return $this->value;
     }
