@@ -100,12 +100,16 @@ class DICaller
     /**
      * Register a parameter based on its type.
      *
-     * @param mixed $parameter The parameter to register.
+     * @param mixed       $parameter The parameter to register.
+     * @param string|null $type      The type of the parameter.
      * @return $this
      */
-    public function registerByType($parameter): self
+    public function registerByType($parameter, ?string $type = null): self
     {
-        $this->typedParameters[] = $parameter;
+        $type !== null && $type !== ''
+            ? $this->typedParameters[$type] = $parameter
+            : $this->typedParameters[] = $parameter;
+
         $this->resolvedParameters = null;
         return $this;
     }
@@ -298,10 +302,23 @@ class DICaller
         }
 
         // loop through the registered typed parameters in reverse order, so more recent ones are checked first
-        foreach (\array_reverse($this->typedParameters) as $possibleParameter) {
-            if ($this->doesTypedParameterMatchReflectionType($possibleParameter, $reflectionType)) {
-                $resolvedParameter = $possibleParameter;
-                return true;
+        foreach (\array_reverse($this->typedParameters) as $type => $possibleParameter) {
+
+            if (\is_string($type)) {
+
+                // the type was specified, check to see if the type-hinted parameter matches the type
+                if ($this->doesTypedParameterMatchReflectionType($type, $possibleParameter, $reflectionType, false)) {
+                    $resolvedParameter = $possibleParameter;
+                    return true;
+                }
+
+            } else {
+
+                // no type specified, so check by to see if the possible parameter matches the parameter
+                if ($this->doesTypedParameterMatchReflectionType(null, $possibleParameter, $reflectionType, true)) {
+                    $resolvedParameter = $possibleParameter;
+                    return true;
+                }
             }
         }
         return false;
@@ -310,17 +327,22 @@ class DICaller
     /**
      * Check to see if a TYPED parameter matches the given ReflectionType.
      *
-     * @param mixed          $possibleParameter The parameter to check.
-     * @param ReflectionType $reflectionType    The type to match.
+     * @param string|null    $typeToMatch        The type to match (if present, otherwise $possibleParameter will be
+     *                                           checked).
+     * @param mixed          $possibleParameter  The parameter to check.
+     * @param ReflectionType $reflectionType     The type to match.
+     * @param boolean        $allowNativePHPType Whether to allow native PHP types or not.
      * @return boolean
      */
     private function doesTypedParameterMatchReflectionType(
+        ?string $typeToMatch,
         $possibleParameter,
-        ReflectionType $reflectionType
+        ReflectionType $reflectionType,
+        bool $allowNativePHPType,
     ): bool {
 
         // help with code coverage and PHPStan checking
-        // as of PHP 8.3, ReflectionType will only be one of these 3 types
+        // as of PHP 8.3, ReflectionType will only be one of the first 3 types, which are children of ReflectionType
         /** @var ReflectionNamedType|ReflectionUnionType|ReflectionIntersectionType|ReflectionType $reflectionType */
 
         // ReflectionNamedType …
@@ -328,9 +350,11 @@ class DICaller
         // check to see if the parameter matches the single NAMED TYPE
         if ($reflectionType instanceof ReflectionNamedType) {
             return $this->doesTypedParameterMatchType(
+                $typeToMatch,
                 $possibleParameter,
                 $reflectionType->getName(),
-                $reflectionType->isBuiltin()
+                $reflectionType->isBuiltin(),
+                $allowNativePHPType
             );
         }
 
@@ -339,7 +363,14 @@ class DICaller
         // check to see if the parameter matches one of the types in the UNION
         if ($reflectionType instanceof ReflectionUnionType) {
             foreach ($reflectionType->getTypes() as $childReflectionType) {
-                if ($this->doesTypedParameterMatchReflectionType($possibleParameter, $childReflectionType)) {
+                if (
+                    $this->doesTypedParameterMatchReflectionType(
+                        $typeToMatch,
+                        $possibleParameter,
+                        $childReflectionType,
+                        $allowNativePHPType,
+                    )
+                ) {
                     return true;
                 }
             }
@@ -351,13 +382,23 @@ class DICaller
         // check to see if the parameter matches ALL of the types in the INTERSECTION
         if ($reflectionType instanceof ReflectionIntersectionType) {
             foreach ($reflectionType->getTypes() as $childReflectionType) {
-                if (!$this->doesTypedParameterMatchReflectionType($possibleParameter, $childReflectionType)) {
+                if (
+                    !$this->doesTypedParameterMatchReflectionType(
+                        $typeToMatch,
+                        $possibleParameter,
+                        $childReflectionType,
+                        $allowNativePHPType,
+                    )
+                ) {
                     return false;
                 }
             }
             return true;
         }
 
+
+
+        // ReflectionType …
 
         // for versions of PHP before 7.1
         // ReflectionType is the original class that PHP 7.0 used before they were split out into separate child classes
@@ -367,26 +408,45 @@ class DICaller
         $isNativePHPType = \method_exists($reflectionType, 'isBuiltin')
             ? (bool) $reflectionType->isBuiltin()
             : true;
+
         return $this->doesTypedParameterMatchType(
+            $typeToMatch,
             $possibleParameter,
             $typeHint,
-            $isNativePHPType
+            $isNativePHPType,
+            $allowNativePHPType,
         );
     }
 
     /**
      * Check to see if a TYPED parameter matches the given ReflectionNamedType.
      *
-     * @param mixed   $possibleParameter The parameter to check.
-     * @param string  $typeHint          The type to match.
-     * @param boolean $isNativePHPType   Whether the type is a native PHP type or not.
+     * @param string|null $typeToMatch       The type to match (if present, otherwise $possibleParameter will be
+     *                                       checked).
+     * @param mixed       $possibleParameter The parameter to check.
+     * @param string      $typeHint          The type to match.
+     * @param boolean     $isNativePHPType   Whether the type is a native PHP type or not.
      * @return boolean
      */
-    private function doesTypedParameterMatchType($possibleParameter, string $typeHint, bool $isNativePHPType): bool
-    {
+    private function doesTypedParameterMatchType(
+        ?string $typeToMatch,
+        $possibleParameter,
+        string $typeHint,
+        bool $isNativePHPType,
+        bool $allowNativePHPType,
+    ): bool {
+
         if ($isNativePHPType) {
 
-            $actualType = \gettype($possibleParameter);
+            if (!$allowNativePHPType) {
+                return false;
+            }
+
+            // check the type the caller specified if they did specify one,
+            // otherwise check the parameter's type itself
+            $actualType = $typeToMatch !== null
+                ? $typeToMatch
+                : \gettype($possibleParameter);
 
             // gettype() returns different type names to the variable type names
             if ($actualType === 'integer') {
@@ -400,7 +460,24 @@ class DICaller
             return ($actualType === $typeHint);
         }
 
-        return ($possibleParameter instanceof $typeHint);
+        if ($typeToMatch !== null) {
+
+            // check if the type the caller specified matches the type-hinted parameter
+            if ($typeToMatch !== $typeHint) {
+                return false;
+            }
+
+            // check if the $possibleParameter actually is an instance of the desired type
+            return $this->doesTypedParameterMatchType(
+                null,
+                $possibleParameter,
+                $typeHint,
+                $isNativePHPType,
+                $allowNativePHPType,
+            );
+        }
+
+        return $possibleParameter instanceof $typeHint;
     }
 
 

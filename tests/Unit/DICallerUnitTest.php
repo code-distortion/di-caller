@@ -458,14 +458,14 @@ class DICallerUnitTest extends PHPUnitTestCase
     }
 
     /**
-     * Test that parameters can be registered by TYPE.
+     * Test that parameters can be registered by IMPLICIT TYPE.
      *
      * @test
      *
      * @return void
      */
     #[Test]
-    public static function test_register_parameters_by_type()
+    public static function test_register_parameters_by_implicit_type()
     {
         // test when no parameter type is specified
         $callable = function ($param1) {
@@ -516,6 +516,17 @@ class DICallerUnitTest extends PHPUnitTestCase
         $anObject = new stdClass();
         $caller = DICaller::new($callable)->registerByType($anObject);
         self::assertSame([$anObject], $caller->call());
+
+        // test when several are registered
+        $callable = function (ClassWithMethods $param1) {
+            return \func_get_args();
+        };
+        $instance1 = new ClassWithMethods();
+        $instance2 = new ClassWithMethods();
+        $caller = DICaller::new($callable)
+            ->registerByType($instance1)
+            ->registerByType($instance2); // latest one wins
+        self::assertSame([$instance2], $caller->call());
 
         // test multiple parameter types
         $callable = function (
@@ -631,6 +642,105 @@ class DICallerUnitTest extends PHPUnitTestCase
         if (\version_compare(\PHP_VERSION, '8.2', '>=')) {
             require_once __DIR__ . '/PHP82/test_register_parameters_by_type.php';
         }
+    }
+
+    /**
+     * Test that parameters can be registered by EXPLICIT TYPE.
+     *
+     * @test
+     *
+     * @return void
+     */
+    #[Test]
+    public static function test_register_parameters_by_explicit_type()
+    {
+        // test when no parameter type is specified
+        $callable = function ($param1) {
+            return \func_get_args();
+        };
+        $caughtException = false;
+        try {
+            DICaller::new($callable)->registerByType(true, 'MyClass')->call();
+        } catch (DICallerUnresolvableParametersException $e) {
+            $caughtException = true;
+        }
+        self::assertTrue($caughtException);
+
+        // test that built-in types are not supported
+        $callable = function (bool $param1) {
+            return \func_get_args();
+        };
+        $caughtException = false;
+        try {
+            DICaller::new($callable)->registerByType(true, 'bool')->call();
+        } catch (DICallerUnresolvableParametersException $e) {
+            $caughtException = true;
+        }
+        self::assertTrue($caughtException);
+
+        // test that class types are supported
+        $callable = function (ClassForCaller $param1) {
+            return \func_get_args();
+        };
+        $instance = new ClassForCaller();
+        $caller = DICaller::new($callable)->registerByType($instance, ClassForCaller::class);
+        self::assertSame([$instance], $caller->call());
+
+        // test that mis-matched types will throw an exception
+        $callable = function (ClassWithMethods $param1) {
+            return \func_get_args();
+        };
+        $caughtException = false;
+        try {
+            DICaller::new($callable)->registerByType($instance, ClassWithMethods::class)->call();
+        } catch (DICallerUnresolvableParametersException $e) {
+            $caughtException = true;
+        }
+        self::assertTrue($caughtException);
+
+        // test when several are registered
+        $callable = function (ClassWithMethods $param1) {
+            return \func_get_args();
+        };
+        $instance1 = new ClassWithMethods();
+        $instance2 = new ClassWithMethods();
+        $caller = DICaller::new($callable)
+            ->registerByType($instance1, ClassWithMethods::class)
+            ->registerByType($instance2, ClassWithMethods::class); // latest one wins
+        self::assertSame([$instance2], $caller->call());
+    }
+
+    /**
+     * Test how parameters are resolved when both implicit and explicit types are used.
+     *
+     * @test
+     *
+     * @return void
+     */
+    #[Test]
+    public static function test_register_parameters_by_implicit_and_explicit_types()
+    {
+        // test when competing implicit and explicit types are used
+        $callable = function (ClassWithMethods $param1) {
+            return \func_get_args();
+        };
+        $instance1 = new ClassWithMethods();
+        $instance2 = new ClassWithMethods();
+        $caller = DICaller::new($callable)
+            ->registerByType($instance1, ClassWithMethods::class)
+            ->registerByType($instance2); // latest one wins
+        self::assertSame([$instance2], $caller->call());
+
+        // test when competing implicit and explicit types are used - reverse order
+        $callable = function (ClassWithMethods $param1) {
+            return \func_get_args();
+        };
+        $instance1 = new ClassWithMethods();
+        $instance2 = new ClassWithMethods();
+        $caller = DICaller::new($callable)
+            ->registerByType($instance1)
+            ->registerByType($instance2, ClassWithMethods::class); // latest one wins
+        self::assertSame([$instance2], $caller->call());
     }
 
     /**
