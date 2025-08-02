@@ -106,6 +106,7 @@ jobs:
             composer remove "infection/infection" --dev --no-interaction --no-update
             composer remove "phpstan/phpstan" --dev --no-interaction --no-update
             composer remove "phpstan/phpstan-strict-rules" --dev --no-interaction --no-update
+            composer remove "slevomat/coding-standard" --dev --no-interaction --no-update
             composer remove "squizlabs/php_codesniffer" --dev --no-interaction --no-update
             composer require "phpunit/phpunit:${{ matrix.phpunit }}" --dev --no-interaction --no-update
             composer update --${{ matrix.dependency-prefer }} --prefer-dist --no-interaction --optimize-autoloader --no-progress

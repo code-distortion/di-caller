@@ -5,12 +5,24 @@
     <!-- allow whitespace after control structures -->
     <exclude name="Squiz.WhiteSpace.ControlStructureSpacing.SpacingAfterOpen" />
     <exclude name="Squiz.WhiteSpace.ControlStructureSpacing.SpacingBeforeClose" />
+    <exclude name="Squiz.WhiteSpace.ScopeClosingBrace.ContentBefore" />
+    <exclude name="PSR2.Methods.MethodDeclaration.Underscore" />
+    <exclude name="PSR2.Classes.PropertyDeclaration.Underscore" />
   </rule>
   <rule ref="Squiz.Commenting.FunctionComment" />
   <rule ref="Squiz.Commenting.FunctionCommentThrowTag" />
   <rule ref="Squiz.Commenting.ClassComment" />
   <!-- <rule ref="Squiz.Commenting.FileComment" /> -->
   <rule ref="Squiz.Commenting.VariableComment" />
+
+  <rule ref="SlevomatCodingStandard.Namespaces.AlphabeticallySortedUses" />
+  <rule ref="SlevomatCodingStandard.Namespaces.DisallowGroupUse" />
+  <rule ref="SlevomatCodingStandard.Namespaces.FullyQualifiedGlobalConstants" />
+  <rule ref="SlevomatCodingStandard.Namespaces.FullyQualifiedGlobalFunctions" />
+  <rule ref="SlevomatCodingStandard.TypeHints.DeclareStrictTypes" />
+  <rule ref="SlevomatCodingStandard.TypeHints.DeclareStrictTypes.IncorrectStrictTypesFormat">
+    <severity>0</severity>
+  </rule>
 
   <exclude-pattern>/.git/*</exclude-pattern>
   <exclude-pattern>/.github/*</exclude-pattern>
