@@ -19,7 +19,7 @@ class DICallerInvalidCallableException extends DICallerException
      */
     public static function notCallable($previous = null): self
     {
-        return !is_null($previous)
+        return $previous !== null
             ? new self('The $callable is not callable', 0, $previous)
             : new self('The $callable is not callable');
     }

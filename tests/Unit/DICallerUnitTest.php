@@ -10,6 +10,11 @@ use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
 use CodeDistortion\DICaller\Tests\PHPUnitTestCase;
 use CodeDistortion\DICaller\Tests\Unit\Support\ClassForCaller;
 use CodeDistortion\DICaller\Tests\Unit\Support\ClassForCallerWithoutInvokeMethod;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithMethods;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithCallMethods;
+use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 use ReflectionException;
 use stdClass;
@@ -32,7 +37,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     #[Test]
     public static function test_the_constructor()
     {
-        $return = mt_rand();
+        $return = \mt_rand();
         $callable = function () use ($return) {
             return $return;
         };
@@ -59,7 +64,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     #[Test]
     public static function test_the_alternative_constructor()
     {
-        $return = mt_rand();
+        $return = \mt_rand();
         $callable = function () use ($return) {
             return $return;
         };
@@ -82,6 +87,69 @@ class DICallerUnitTest extends PHPUnitTestCase
 
 
     /**
+     * Test passing a `Namespace\Class::method` string.
+     *
+     * @test
+     *
+     * @return void
+     */
+    #[Test]
+    public static function test_passing_a_class_method_string()
+    {
+        // invalid - method doesn't exist
+        try {
+            $passing = \mt_rand();
+            $caller = DICaller::new(ClassWithMethods::class . '::nonExistentMethod')
+                ->registerByPosition(0, $passing)
+                ->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+
+        // invalid - method is not static
+        try {
+            $passing = \mt_rand();
+            $caller = DICaller::new(ClassWithMethods::class . '::publicMethod')->registerByPosition(0, $passing);
+            $caller->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+        // invalid - method is not public or static
+        try {
+            $passing = \mt_rand();
+            $caller = DICaller::new(ClassWithMethods::class . '::protectedMethod')->registerByPosition(0, $passing);
+            $caller->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+
+        // valid
+        $passing = \mt_rand();
+        $caller = DICaller::new(ClassWithMethods::class . '::publicStaticMethod')->registerByPosition(0, $passing);
+        self::assertSame($passing, $caller->call());
+
+        // test that it can't be called when the method is protected
+        try {
+            $passing = \mt_rand();
+            $caller = DICaller::new(ClassWithMethods::class . '::protectedStaticMethod')
+                ->registerByPosition(0, $passing);
+            $caller->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+
+        // valid? - checking for __callStatic() is currently unsupported
+        try {
+            $passing = \mt_rand();
+            $caller = DICaller::new(ClassWithCallMethods::class . '::nonExistentMethod')
+                ->registerByPosition(0, $passing);
+            $caller->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+    }
+
+    /**
      * Test that a Closure can be called.
      *
      * @test
@@ -91,7 +159,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     #[Test]
     public static function test_passing_a_closure()
     {
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = function ($param1) {
             return $param1;
         };
@@ -110,28 +178,28 @@ class DICallerUnitTest extends PHPUnitTestCase
     public static function test_passing_a_callable_array_containing_a_class_or_object()
     {
         // where the first element is a class name string - and the method is static
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = [ClassForCaller::class, 'new']; // array [class, static-method]
         /** @var ClassForCaller $return */
         $return = DICaller::new($callable)->registerByPosition(0, $passing)->call();
         self::assertSame($passing, $return->getValue());
 
         // where the first element is an object - and the method is static
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = [new ClassForCaller(), 'new']; // array [object, static-method]
         /** @var ClassForCaller $return */
         $return = DICaller::new($callable)->registerByPosition(0, $passing)->call();
         self::assertSame($passing, $return->getValue());
 
         // where the first element is an object - and the method is non-static
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = [new ClassForCaller(), '__invoke']; // array [object, non-static-method]
         /** @var ClassForCaller $return */
         $return = DICaller::new($callable)->registerByPosition(0, $passing)->call();
         self::assertSame($passing, $return->getValue());
 
         // where the first element is NOT an object or string
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = [1234, '__invoke']; // array [integer, non-static-method]
         $caughtException = false;
         try {
@@ -141,11 +209,33 @@ class DICallerUnitTest extends PHPUnitTestCase
             // only detect the exception if there's no previous exception,
             // meaning the DICaller checking picked up the problem rather
             // than the input being passed to ReflectionMethod
-            if (is_null($e->getPrevious())) {
+            if (\is_null($e->getPrevious())) {
                 $caughtException = true;
             }
         }
         self::assertTrue($caughtException);
+
+        // where the first element is an object - and the method doesn't exist, but would be handled by __call()
+        // Note: this isn't supported at the moment as it's hard to know whether __call() will accept the method call or
+        // not
+        try {
+            $passing = \mt_rand();
+            $callable = [new ClassWithCallMethods(), 'nonExistentMethod']; // array [object, non-existent-method]
+            DICaller::new($callable)->registerByPosition(0, $passing)->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
+
+        // where the first element is an object - and the method doesn't exist, but would be handled by __callStatic()
+        // Note: this isn't supported at the moment as it's hard to know whether __callStatic() will accept the method
+        // call or not
+        try {
+            $passing = \mt_rand();
+            $callable = [ClassWithCallMethods::class, 'nonExistentMethod']; // array [object, non-existent-method]
+            DICaller::new($callable)->registerByPosition(0, $passing)->call();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInvalidCallableException) {
+        }
     }
 
     /**
@@ -158,7 +248,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     #[Test]
     public static function test_passing_an_invokable_object()
     {
-        $passing = mt_rand();
+        $passing = \mt_rand();
         $callable = new ClassForCaller();
         /** @var ClassForCaller $return */
         $return = DICaller::new($callable)->registerByPosition(0, $passing)->call();
@@ -185,10 +275,14 @@ class DICallerUnitTest extends PHPUnitTestCase
      * Test that an exception is thrown then the $callable isn't callable.
      *
      * @test
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
      *
      * @return void
      */
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public static function test_passing_invalid_callables()
     {
         // trigger an exception by passing null
@@ -207,7 +301,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             DICaller::new(['non_existent_class', 'non_existent_method'])->call();
         } catch (DICallerInvalidCallableException $e) {
             $caughtException = true;
-            self::assertInstanceOf(ReflectionException::class, $e->getPrevious());
+            self::assertNull($e->getPrevious());
         }
         self::assertTrue($caughtException);
 
@@ -225,6 +319,26 @@ class DICallerUnitTest extends PHPUnitTestCase
         $caughtException = false;
         try {
             DICaller::new(new ClassForCallerWithoutInvokeMethod())->call();
+        } catch (DICallerInvalidCallableException $e) {
+            $caughtException = true;
+            self::assertNull($e->getPrevious());
+        }
+        self::assertTrue($caughtException);
+
+        // trigger an exception by failing to match a callable type - class, even though it implements __invoke()
+        $caughtException = false;
+        try {
+            DICaller::new(ClassForCaller::class)->call();
+        } catch (DICallerInvalidCallableException $e) {
+            $caughtException = true;
+            self::assertNull($e->getPrevious());
+        }
+        self::assertTrue($caughtException);
+
+        // trigger an exception by failing to match a callable type - class, which does implement __invoke()
+        $caughtException = false;
+        try {
+            DICaller::new(ClassForCallerWithoutInvokeMethod::class)->call();
         } catch (DICallerInvalidCallableException $e) {
             $caughtException = true;
             self::assertNull($e->getPrevious());
@@ -248,14 +362,14 @@ class DICallerUnitTest extends PHPUnitTestCase
     {
         // test one parameter
         $callable = function ($param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByPosition(0, 'zero');
         self::assertSame(['zero'], $caller->call());
 
         // test multiple parameters
         $callable = function ($param1, $param2, $param3) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByPosition(0, 'zero')
@@ -301,14 +415,14 @@ class DICallerUnitTest extends PHPUnitTestCase
     {
         // test one parameter
         $callable = function ($param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByName('param1', 'one');
         self::assertSame(['one'], $caller->call());
 
         // test multiple parameters
         $callable = function ($param1, $param2, $param3) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByName('param1', 'one')
@@ -355,7 +469,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     {
         // test when no parameter type is specified
         $callable = function ($param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caughtException = false;
         try {
@@ -367,37 +481,37 @@ class DICallerUnitTest extends PHPUnitTestCase
 
         // test the different parameter types
         $callable = function (bool $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(true);
         self::assertSame([true], $caller->call());
 
         $callable = function (int $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(1);
         self::assertSame([1], $caller->call());
 
         $callable = function (float $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(1.1);
         self::assertSame([1.1], $caller->call());
 
         $callable = function (string $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType('a string');
         self::assertSame(['a string'], $caller->call());
 
         $callable = function (array $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(['an array']);
         self::assertSame([['an array']], $caller->call());
 
         $callable = function (stdClass $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $anObject = new stdClass();
         $caller = DICaller::new($callable)->registerByType($anObject);
@@ -412,7 +526,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByType(true)
@@ -425,7 +539,7 @@ class DICallerUnitTest extends PHPUnitTestCase
 
         // test that a value can satisfy multiple parameter types
         $callable = function (bool $param1, int $param2, int $param3, float $param4) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByType(true)
@@ -442,7 +556,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByType($anObject)
@@ -455,7 +569,7 @@ class DICallerUnitTest extends PHPUnitTestCase
 
         // test that unused parameters are ok
         $callable = function (bool $param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByType($anObject)
@@ -475,7 +589,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)
             ->registerByType($anObject)
@@ -491,30 +605,30 @@ class DICallerUnitTest extends PHPUnitTestCase
 
         // test variadic parameters
         $callable = function (int ...$param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(1);
         self::assertSame([1], $caller->call());
 
         // test variadic parameters
         $callable = function (int $param1, int ...$param2) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable)->registerByType(1);
         self::assertSame([1, 1], $caller->call());
 
         // perform tests that require PHP 8.0+
-        if (version_compare(PHP_VERSION, '8.0', '>=')) {
+        if (\version_compare(\PHP_VERSION, '8.0', '>=')) {
             require_once __DIR__ . '/PHP80/test_register_parameters_by_type.php';
         }
 
         // perform tests that require PHP 8.1+
-        if (version_compare(PHP_VERSION, '8.1', '>=')) {
+        if (\version_compare(\PHP_VERSION, '8.1', '>=')) {
             require_once __DIR__ . '/PHP81/test_register_parameters_by_type.php';
         }
 
         // perform tests that require PHP 8.2+
-        if (version_compare(PHP_VERSION, '8.2', '>=')) {
+        if (\version_compare(\PHP_VERSION, '8.2', '>=')) {
             require_once __DIR__ . '/PHP82/test_register_parameters_by_type.php';
         }
     }
@@ -538,7 +652,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $anObject1 = new stdClass();
         $caller = DICaller::new($callable)
@@ -559,7 +673,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $anObject1 = new stdClass();
         $anObject2 = new stdClass();
@@ -594,7 +708,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             array $param5,
             stdClass $param6
         ) {
-            return func_get_args();
+            return \func_get_args();
         };
         $anObject1 = new stdClass();
         $anObject2 = new stdClass();
@@ -632,13 +746,13 @@ class DICallerUnitTest extends PHPUnitTestCase
     public static function test_when_parameters_are_optional()
     {
         // perform tests that require PHP 8.0+
-        if (version_compare(PHP_VERSION, '8.0', '>=')) {
+        if (\version_compare(\PHP_VERSION, '8.0', '>=')) {
             require_once __DIR__ . '/PHP80/test_register_parameters_by_type.php';
         }
 
         // even when /PHP80/test_register_parameters_by_type.php is included above, this arbitrary test is still needed,
         // otherwise a warning is generated "This test did not perform any assertions"
-        self::assertTrue(true);
+        self::assertTrue(true); // @phpstan-ignore-line
     }
 
     /**
@@ -652,7 +766,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     public static function test_when_parameters_dont_have_a_type()
     {
         $callable = function ($param1) {
-            return func_get_args();
+            return \func_get_args();
         };
         $caller = DICaller::new($callable);
 
@@ -780,7 +894,7 @@ class DICallerUnitTest extends PHPUnitTestCase
     {
         // test to check that variadic parameters are not supported
         $callable = function (int ...$numbers) {
-            return array_sum($numbers);
+            return \array_sum($numbers);
         };
         $caller = DICaller::new($callable);
 

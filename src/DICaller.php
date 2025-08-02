@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace CodeDistortion\DICaller;
 
+use Closure;
 use CodeDistortion\DICaller\Exceptions\DICallerInvalidCallableException;
 use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
-use ReflectionIntersectionType;
 use ReflectionException;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
+use ReflectionIntersectionType;
 use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
@@ -28,16 +29,16 @@ class DICaller
     private $callableReflection = null;
 
 
-    /** @var array<string|integer, mixed> The parameters to pass to the callable, based on the parameter name. */
+    /** @var array<string|integer,mixed> The parameters to pass to the callable, based on the parameter name. */
     private $namedParameters = [];
 
-    /** @var array<string|integer, mixed> The parameters to pass to the callable, based on the type. */
+    /** @var array<string|integer,mixed> The parameters to pass to the callable, based on the type. */
     private $typedParameters = [];
 
-    /** @var array<string|integer, mixed> The parameters to pass to the callable, based on their position. */
+    /** @var array<string|integer,mixed> The parameters to pass to the callable, based on their position. */
     private $positionalParameters = [];
 
-    /** @var array<string|integer, mixed>|null The parameters, resolved for the callable. */
+    /** @var array<string|integer,mixed>|null The parameters, resolved for the callable. */
     private $resolvedParameters = null;
 
 
@@ -140,27 +141,64 @@ class DICaller
     {
         try {
 
+            // turn a string like this: "Namespace\Class::method" into an array so it's handled below
+            if (\is_string($callable) && \mb_strpos($callable, '::') !== false) {
+                $callable = \explode('::', $callable);
+            }
+
+            // closure
+            if ($callable instanceof Closure) {
+
+                return new ReflectionFunction($callable);
+
             // array callable
-            if (is_array($callable)) {
+            } elseif (\is_array($callable) && (\count($callable) === 2)) {
 
-                $class = array_values($callable)[0];
-                $method = array_values($callable)[1];
+                $objectOrClass = \array_values($callable)[0];
+                $method = \array_values($callable)[1];
 
-                if ((is_string($class)) || (is_object($class))) {
-                    if (is_string($method)) {
-                        return new ReflectionMethod($class, $method);
+                if (\is_string($objectOrClass) || \is_object($objectOrClass)) {
+
+                    $class = \is_object($objectOrClass)
+                        ? \get_class($objectOrClass)
+                        : $objectOrClass;
+
+                    if (\class_exists($class)) {
+                        if (\is_string($method)) {
+
+                            // Note: it's possible that the method doesn't exist, but __call() or __callStatic() will
+                            //       handle it. This situation isn't checked for at the moment, as it's hard to know
+                            //       whether __call() or __callStatic() will accept the method call or not
+
+                            if (\method_exists($objectOrClass, $method)) {
+                                if (\is_callable([$objectOrClass, $method])) {
+                                    return new ReflectionMethod($objectOrClass, $method);
+                                }
+                            }
+                        }
                     }
                 }
 
-            // callable class (i.e. implements __invoke())
-            } elseif (is_object($callable)) {
-                if (method_exists($callable, '__invoke')) {
+            // instance of an invokable class (i.e. implements __invoke())
+            } elseif (\is_object($callable)) {
+
+                if (\method_exists($callable, '__invoke')) {
                     return new ReflectionMethod($callable, '__invoke');
                 }
 
-            // standard function (string)
-            } elseif (is_string($callable)) {
-                if (function_exists($callable)) {
+            // string - invokable class, or function
+            } elseif (\is_string($callable)) {
+
+                // classes with __invoke() are not callable as a class...
+                // // invokable class (i.e. implements __invoke())
+                // if (class_exists($callable)) {
+                //     if (method_exists($callable, '__invoke')) {
+                //         return new ReflectionMethod($callable, '__invoke');
+                //     }
+                // }
+
+                // function
+                if (\function_exists($callable)) {
                     return new ReflectionFunction($callable);
                 }
             }
@@ -183,12 +221,12 @@ class DICaller
      */
     private function resolveParameters()
     {
-        if (is_null($this->callableReflection)) {
+        if ($this->callableReflection === null) {
             return false;
         }
 
         // return cached
-        if (!is_null($this->resolvedParameters)) {
+        if ($this->resolvedParameters !== null) {
             return $this->resolvedParameters;
         }
 
@@ -215,14 +253,14 @@ class DICaller
     {
         // check the POSITIONAL parameters
         $position = $reflectionParam->getPosition();
-        if (array_key_exists($position, $this->positionalParameters)) {
+        if (\array_key_exists($position, $this->positionalParameters)) {
             $resolvedParameter = $this->positionalParameters[$position];
             return true;
         }
 
         // check the NAMED parameters
         $name = $reflectionParam->getName();
-        if (array_key_exists($name, $this->namedParameters)) {
+        if (\array_key_exists($name, $this->namedParameters)) {
             $resolvedParameter = $this->namedParameters[$name];
             return true;
         }
@@ -233,7 +271,7 @@ class DICaller
         }
 
         // check to see if the parameter even has a type specified
-        if (is_null($reflectionParam->getType())) {
+        if ($reflectionParam->getType() === null) {
             return false;
         }
 
@@ -255,12 +293,12 @@ class DICaller
      */
     private function findReflectionTypeMatch($reflectionType, &$resolvedParameter): bool
     {
-        if (is_null($reflectionType)) {
+        if ($reflectionType === null) {
             return false;
         }
 
         // loop through the registered typed parameters in reverse order, so more recent ones are checked first
-        foreach (array_reverse($this->typedParameters) as $possibleParameter) {
+        foreach (\array_reverse($this->typedParameters) as $possibleParameter) {
             if ($this->doesTypedParameterMatchReflectionType($possibleParameter, $reflectionType)) {
                 $resolvedParameter = $possibleParameter;
                 return true;
@@ -321,13 +359,12 @@ class DICaller
         }
 
 
-
         // for versions of PHP before 7.1
-        // Note: to improve code coverage and PHPStan checking, assume that $reflectionType is a ReflectionType
-        // by this point, which is the original class that PHP 7.0 used before they were split out into separate
-        // child classes
+        // ReflectionType is the original class that PHP 7.0 used before they were split out into separate child classes
+        \assert($reflectionType instanceof ReflectionType); // @phpstan-ignore-lines
+
         $typeHint = (string) $reflectionType;
-        $isNativePHPType = method_exists($reflectionType, 'isBuiltin')
+        $isNativePHPType = \method_exists($reflectionType, 'isBuiltin')
             ? (bool) $reflectionType->isBuiltin()
             : true;
         return $this->doesTypedParameterMatchType(
@@ -349,7 +386,7 @@ class DICaller
     {
         if ($isNativePHPType) {
 
-            $actualType = gettype($possibleParameter);
+            $actualType = \gettype($possibleParameter);
 
             // gettype() returns different type names to the variable type names
             if ($actualType === 'integer') {
@@ -424,6 +461,6 @@ class DICaller
 
         /** @var callable $callable For PHPStan. */
         $callable = $this->callable;
-        return call_user_func_array($callable, $params);
+        return \call_user_func_array($callable, $params);
     }
 }
