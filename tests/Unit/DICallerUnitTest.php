@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace CodeDistortion\DICaller\Tests\Unit;
 
 use CodeDistortion\DICaller\DICaller;
+use CodeDistortion\DICaller\Exceptions\DICallerInstantiationException;
 use CodeDistortion\DICaller\Exceptions\DICallerInvalidCallableException;
 use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
 use CodeDistortion\DICaller\Tests\PHPUnitTestCase;
 use CodeDistortion\DICaller\Tests\Unit\Support\ClassForCaller;
 use CodeDistortion\DICaller\Tests\Unit\Support\ClassForCallerWithoutInvokeMethod;
-use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithMethods;
 use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithCallMethods;
-use PHPUnit\Framework\AssertionFailedError;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithConstructor;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithEmptyConstructor;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithMethods;
+use CodeDistortion\DICaller\Tests\Unit\Support\ClassWithoutConstructor;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
-use ReflectionException;
 use stdClass;
 use Throwable;
 
@@ -103,7 +105,7 @@ class DICallerUnitTest extends PHPUnitTestCase
                 ->registerByPosition(0, $passing)
                 ->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
 
         // invalid - method is not static
@@ -112,7 +114,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             $caller = DICaller::new(ClassWithMethods::class . '::publicMethod')->registerByPosition(0, $passing);
             $caller->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
         // invalid - method is not public or static
         try {
@@ -120,7 +122,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             $caller = DICaller::new(ClassWithMethods::class . '::protectedMethod')->registerByPosition(0, $passing);
             $caller->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
 
         // valid
@@ -135,7 +137,7 @@ class DICallerUnitTest extends PHPUnitTestCase
                 ->registerByPosition(0, $passing);
             $caller->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
 
         // valid? - checking for __callStatic() is currently unsupported
@@ -145,7 +147,7 @@ class DICallerUnitTest extends PHPUnitTestCase
                 ->registerByPosition(0, $passing);
             $caller->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
     }
 
@@ -223,7 +225,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             $callable = [new ClassWithCallMethods(), 'nonExistentMethod']; // array [object, non-existent-method]
             DICaller::new($callable)->registerByPosition(0, $passing)->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
 
         // where the first element is an object - and the method doesn't exist, but would be handled by __callStatic()
@@ -234,7 +236,7 @@ class DICallerUnitTest extends PHPUnitTestCase
             $callable = [ClassWithCallMethods::class, 'nonExistentMethod']; // array [object, non-existent-method]
             DICaller::new($callable)->registerByPosition(0, $passing)->call();
             self::fail("An exception was expected but it wasn't thrown");
-        } catch (DICallerInvalidCallableException) {
+        } catch (DICallerInvalidCallableException $e) {
         }
     }
 
@@ -295,7 +297,7 @@ class DICallerUnitTest extends PHPUnitTestCase
         }
         self::assertTrue($caughtException);
 
-        // trigger an exception by triggering a ReflectionException
+        // trigger an exception by triggering a DICallerInvalidCallableException
         $caughtException = false;
         try {
             DICaller::new(['non_existent_class', 'non_existent_method'])->call();
@@ -1015,5 +1017,62 @@ class DICallerUnitTest extends PHPUnitTestCase
             $caughtException = true;
         }
         self::assertTrue($caughtException);
+    }
+
+
+
+
+
+    /**
+     * Test that classes can be instantiated.
+     *
+     * @test
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     *
+     * @return void
+     */
+    #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public static function test_class_instantiation()
+    {
+        // try passing something that isn't a class
+        try {
+            DICaller::new(['a', 'b'])->instantiate();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInstantiationException $e) {
+        }
+
+        // try passing a class that doesn't exist
+        try {
+            DICaller::new('NonExistentClass')->instantiate();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerInstantiationException $e) {
+        }
+
+        // try passing a class that doesn't have a constructor
+        $instance = DICaller::new(ClassWithoutConstructor::class)->instantiate();
+        self::assertInstanceOf(ClassWithoutConstructor::class, $instance);
+
+        // try passing a class that does have a constructor, but with no parameters
+        $instance = DICaller::new(ClassWithEmptyConstructor::class)->instantiate();
+        self::assertInstanceOf(ClassWithEmptyConstructor::class, $instance);
+
+        // try passing a class that does have a constructor, and has parameters, but the parameters can't be resolved
+        try {
+            DICaller::new(ClassWithConstructor::class)->instantiate();
+            self::fail("An exception was expected but it wasn't thrown");
+        } catch (DICallerUnresolvableParametersException $e) {
+        }
+
+        // try passing a class that does have a constructor, and parameters
+        $instance = DICaller::new(ClassWithConstructor::class)
+            ->registerByPosition(0, 'a string')
+            ->registerByPosition(1, 1)
+            ->instantiate();
+        self::assertInstanceOf(ClassWithConstructor::class, $instance);
+        self::assertSame('a string', $instance->param1);
+        self::assertSame(1, $instance->param2);
     }
 }

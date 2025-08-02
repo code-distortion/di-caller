@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace CodeDistortion\DICaller;
 
 use Closure;
+use CodeDistortion\DICaller\Exceptions\DICallerInstantiationException;
 use CodeDistortion\DICaller\Exceptions\DICallerInvalidCallableException;
 use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
+use ReflectionClass;
 use ReflectionException;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
@@ -104,7 +106,7 @@ class DICaller
      * @param string|null $type      The type of the parameter.
      * @return $this
      */
-    public function registerByType($parameter, ?string $type = null): self
+    public function registerByType($parameter, $type = null): self
     {
         $type !== null && $type !== ''
             ? $this->typedParameters[$type] = $parameter
@@ -176,7 +178,20 @@ class DICaller
 
                             if (\method_exists($objectOrClass, $method)) {
                                 if (\is_callable([$objectOrClass, $method])) {
-                                    return new ReflectionMethod($objectOrClass, $method);
+
+                                    // extra check to stop non-static methods from being called statically
+                                    // as this was allowed in PHP <= 7.4
+                                    $staticCheckIsOk = true;
+                                    if (\is_string($objectOrClass)) { // i.e. is a class
+                                        $methodIsStatic = (new ReflectionMethod($objectOrClass, $method))->isStatic();
+                                        if (!$methodIsStatic) {
+                                            $staticCheckIsOk = false;
+                                        }
+                                    }
+
+                                    if ($staticCheckIsOk) {
+                                        return new ReflectionMethod($objectOrClass, $method);
+                                    }
                                 }
                             }
                         }
@@ -221,7 +236,7 @@ class DICaller
     /**
      * Resolve the parameters for the callable.
      *
-     * @return array<string|integer, mixed>|false
+     * @return array<string|integer,mixed>|false
      */
     private function resolveParameters()
     {
@@ -335,10 +350,10 @@ class DICaller
      * @return boolean
      */
     private function doesTypedParameterMatchReflectionType(
-        ?string $typeToMatch,
+        $typeToMatch,
         $possibleParameter,
         ReflectionType $reflectionType,
-        bool $allowNativePHPType,
+        bool $allowNativePHPType
     ): bool {
 
         // help with code coverage and PHPStan checking
@@ -368,7 +383,7 @@ class DICaller
                         $typeToMatch,
                         $possibleParameter,
                         $childReflectionType,
-                        $allowNativePHPType,
+                        $allowNativePHPType
                     )
                 ) {
                     return true;
@@ -387,7 +402,7 @@ class DICaller
                         $typeToMatch,
                         $possibleParameter,
                         $childReflectionType,
-                        $allowNativePHPType,
+                        $allowNativePHPType
                     )
                 ) {
                     return false;
@@ -414,7 +429,7 @@ class DICaller
             $possibleParameter,
             $typeHint,
             $isNativePHPType,
-            $allowNativePHPType,
+            $allowNativePHPType
         );
     }
 
@@ -429,11 +444,11 @@ class DICaller
      * @return boolean
      */
     private function doesTypedParameterMatchType(
-        ?string $typeToMatch,
+        $typeToMatch,
         $possibleParameter,
         string $typeHint,
         bool $isNativePHPType,
-        bool $allowNativePHPType,
+        bool $allowNativePHPType
     ): bool {
 
         if ($isNativePHPType) {
@@ -473,7 +488,7 @@ class DICaller
                 $possibleParameter,
                 $typeHint,
                 $isNativePHPType,
-                $allowNativePHPType,
+                $allowNativePHPType
             );
         }
 
@@ -539,5 +554,40 @@ class DICaller
         /** @var callable $callable For PHPStan. */
         $callable = $this->callable;
         return \call_user_func_array($callable, $params);
+    }
+
+    /**
+     * Instantiate the class, substituting the parameters where necessary.
+     *
+     * @return mixed
+     * @throws DICallerInstantiationException When an invalid class was specified.
+     * @throws DICallerUnresolvableParametersException When the parameters could not be resolved.
+     */
+    public function instantiate()
+    {
+        if (!\is_string($this->callable)) {
+            throw DICallerInstantiationException::somethingOtherThanAClassWasSpecified();
+        }
+
+        if (!\class_exists($this->callable)) {
+            throw DICallerInstantiationException::classDoesNotExist($this->callable);
+        }
+
+        // check if the class has a constructor
+        $classReflection = new ReflectionClass($this->callable);
+        $reflectionMethod = $classReflection->getConstructor();
+        if ($reflectionMethod === null) {
+            return new $this->callable();
+        }
+
+        $this->callableReflection = $reflectionMethod;
+
+        $params = $this->resolveParameters();
+        if ($params === false) {
+            throw DICallerUnresolvableParametersException::cannotResolveParameters();
+        }
+
+        // instantiate the class with the resolved parameters
+        return (new ReflectionClass($this->callable))->newInstanceArgs($params);
     }
 }
