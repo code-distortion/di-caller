@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace CodeDistortion\DICaller;
 
 use Closure;
+use CodeDistortion\DICaller\Exceptions\DICallerCallableException;
 use CodeDistortion\DICaller\Exceptions\DICallerInstantiationException;
-use CodeDistortion\DICaller\Exceptions\DICallerInvalidCallableException;
-use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionFunction;
@@ -27,8 +26,6 @@ class DICaller
     /** @var callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null The callable to call. */
     private $callable;
 
-    /** @var ReflectionFunctionAbstract|null Reflection of $callable. */
-    private $callableReflection = null;
 
 
     /** @var array<string|integer,mixed> The parameters to pass to the callable, based on the parameter name. */
@@ -40,31 +37,53 @@ class DICaller
     /** @var array<string|integer,mixed> The parameters to pass to the callable, based on their position. */
     private $positionalParameters = [];
 
+
+
+    /** @var boolean Whether the constructor has been resolved or not. */
+    private $hasResolvedConstructorReflection = false;
+
+    /** @var ReflectionMethod|null Reflection of the class's constructor. */
+    private $constructorReflection = null;
+
+    /** @var array<string|integer,mixed>|null The parameters, resolved for the class's constructor. */
+    private $resolvedConstructorParameters = null;
+
+
+
+    /** @var boolean Whether the callable reflection has been resolved or not. */
+    private $hasResolvedCallableReflection = false;
+
+    /** @var ReflectionFunctionAbstract|null Reflection of $callable. */
+    private $callableReflection = null;
+
     /** @var array<string|integer,mixed>|null The parameters, resolved for the callable. */
-    private $resolvedParameters = null;
+    private $resolvedCallableParameters = null;
+
 
 
     /**
      * Constructor
      *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
-     *                                                                                                call.
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $classOrCallable The class
+     *                                                                                                       or callable
+     *                                                                                                       to call.
      */
-    public function __construct($callable)
+    public function __construct($classOrCallable)
     {
-        $this->callable = $callable;
+        $this->callable = $classOrCallable;
     }
 
     /**
      * Alternate constructor
      *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
-     *                                                                                                call.
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $classOrCallable The class
+     *                                                                                                       or callable
+     *                                                                                                       to call.
      * @return self
      */
-    public static function new($callable): self
+    public static function new($classOrCallable): self
     {
-        return new self($callable);
+        return new self($classOrCallable);
     }
 
 
@@ -81,7 +100,7 @@ class DICaller
     public function registerByPosition(int $position, $parameter): self
     {
         $this->positionalParameters[$position] = $parameter;
-        $this->resolvedParameters = null;
+        $this->resolvedCallableParameters = null;
         return $this;
     }
 
@@ -95,7 +114,7 @@ class DICaller
     public function registerByName(string $name, $parameter): self
     {
         $this->namedParameters[$name] = $parameter;
-        $this->resolvedParameters = null;
+        $this->resolvedCallableParameters = null;
         return $this;
     }
 
@@ -112,122 +131,13 @@ class DICaller
             ? $this->typedParameters[$type] = $parameter
             : $this->typedParameters[] = $parameter;
 
-        $this->resolvedParameters = null;
+        $this->resolvedCallableParameters = null;
         return $this;
     }
 
 
 
 
-
-    /**
-     * Build a ReflectionFunctionAbstract for the given callable.
-     *
-     * Caches the result.
-     *
-     * @return void
-     * @throws DICallerInvalidCallableException When the callable is not callable.
-     */
-    private function prepareReflectionInstance()
-    {
-        // @infection-ignore-all ??= -> =
-        // (the result is the same so it won't throw an exception)
-        $this->callableReflection = $this->callableReflection ?? $this->buildReflectionInstance($this->callable);
-    }
-
-    /**
-     * Build a ReflectionFunctionAbstract for the given callable.
-     *
-     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable to
-     *                                                                                                call.
-     * @return ReflectionFunctionAbstract
-     * @throws DICallerInvalidCallableException When the callable is not callable.
-     */
-    private function buildReflectionInstance($callable): ReflectionFunctionAbstract
-    {
-        try {
-
-            // turn a string like this: "Namespace\Class::method" into an array so it's handled below
-            if (\is_string($callable) && \mb_strpos($callable, '::') !== false) {
-                $callable = \explode('::', $callable);
-            }
-
-            // closure
-            if ($callable instanceof Closure) {
-
-                return new ReflectionFunction($callable);
-
-            // array callable
-            } elseif (\is_array($callable) && (\count($callable) === 2)) {
-
-                $objectOrClass = \array_values($callable)[0];
-                $method = \array_values($callable)[1];
-
-                if (\is_string($objectOrClass) || \is_object($objectOrClass)) {
-
-                    $class = \is_object($objectOrClass)
-                        ? \get_class($objectOrClass)
-                        : $objectOrClass;
-
-                    if (\class_exists($class)) {
-                        if (\is_string($method)) {
-
-                            // Note: it's possible that the method doesn't exist, but __call() or __callStatic() will
-                            //       handle it. This situation isn't checked for at the moment, as it's hard to know
-                            //       whether __call() or __callStatic() will accept the method call or not
-
-                            if (\method_exists($objectOrClass, $method)) {
-                                if (\is_callable([$objectOrClass, $method])) {
-
-                                    // extra check to stop non-static methods from being called statically
-                                    // as this was allowed in PHP <= 7.4
-                                    $staticCheckIsOk = true;
-                                    if (\is_string($objectOrClass)) { // i.e. is a class
-                                        $methodIsStatic = (new ReflectionMethod($objectOrClass, $method))->isStatic();
-                                        if (!$methodIsStatic) {
-                                            $staticCheckIsOk = false;
-                                        }
-                                    }
-
-                                    if ($staticCheckIsOk) {
-                                        return new ReflectionMethod($objectOrClass, $method);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-            // instance of an invokable class (i.e. implements __invoke())
-            } elseif (\is_object($callable)) {
-
-                if (\method_exists($callable, '__invoke')) {
-                    return new ReflectionMethod($callable, '__invoke');
-                }
-
-            // string - invokable class, or function
-            } elseif (\is_string($callable)) {
-
-                // classes with __invoke() are not callable as a class...
-                // // invokable class (i.e. implements __invoke())
-                // if (class_exists($callable)) {
-                //     if (method_exists($callable, '__invoke')) {
-                //         return new ReflectionMethod($callable, '__invoke');
-                //     }
-                // }
-
-                // function
-                if (\function_exists($callable)) {
-                    return new ReflectionFunction($callable);
-                }
-            }
-
-        } catch (ReflectionException $e) {
-            throw DICallerInvalidCallableException::notCallable($e);
-        }
-
-        throw DICallerInvalidCallableException::notCallable();
-    }
 
 
 
@@ -236,29 +146,31 @@ class DICaller
     /**
      * Resolve the parameters for the callable.
      *
+     * @param ReflectionFunctionAbstract|null  $callableReflection The callable reflection to use.
+     * @param array<string|integer,mixed>|null $resolvedParameters The parameters, resolved for the callable.
      * @return array<string|integer,mixed>|false
      */
-    private function resolveParameters()
+    private function resolveParameters($callableReflection, &$resolvedParameters)
     {
-        if ($this->callableReflection === null) {
+        if ($callableReflection === null) {
             return false;
         }
 
         // return cached
-        if ($this->resolvedParameters !== null) {
-            return $this->resolvedParameters;
+        if ($resolvedParameters !== null) {
+            return $resolvedParameters;
         }
 
-        $resolvedParameters = [];
-        foreach ($this->callableReflection->getParameters() as $reflectionParam) {
+        $tempResolvedParameters = [];
+        foreach ($callableReflection->getParameters() as $reflectionParam) {
             if ($this->resolveParameter($reflectionParam, $resolvedParameter)) {
-                $resolvedParameters[] = $resolvedParameter;
+                $tempResolvedParameters[] = $resolvedParameter;
             } else {
                 return false;
             }
         }
 
-        return $this->resolvedParameters = $resolvedParameters;
+        return $resolvedParameters = $tempResolvedParameters;
     }
 
     /**
@@ -499,6 +411,126 @@ class DICaller
 
 
 
+
+
+
+
+    /**
+     * Check if the class can be instantiated, and that the parameters resolve.
+     *
+     * @return boolean
+     */
+    public function canInstantiate(): bool
+    {
+        $constructorReflection = null;
+        try {
+            $constructorReflection = $this->prepareConstructorReflectionInstance();
+        } catch (DICallerInstantiationException $e) {
+            return false;
+        }
+
+        // class with no constructor
+        if ($constructorReflection === null) {
+            return true;
+        }
+
+        // check the parameters resolve
+        $params = $this->resolveParameters($constructorReflection, $this->resolvedConstructorParameters);
+
+        return $params !== false;
+    }
+
+    /**
+     * Instantiate the class (provided it resolves), substituting the parameters where necessary.
+     *
+     * Returns null when the class cannot be instantiated.
+     *
+     * @return mixed
+     */
+    public function instantiateIfPossible()
+    {
+        return $this->canInstantiate()
+            ? $this->instantiate()
+            : null;
+    }
+
+    /**
+     * Instantiate the class, substituting the parameters where necessary.
+     *
+     * @return object
+     * @throws DICallerInstantiationException When the class is not a class.
+     */
+    public function instantiate()
+    {
+        $constructorReflection = $this->prepareConstructorReflectionInstance();
+
+        // instantiate when there's no constructor
+        if ($constructorReflection === null) {
+
+            /** @var object $instance */
+            $instance = new $this->callable();
+            return $instance;
+        }
+
+        $params = $this->resolveParameters($constructorReflection, $this->resolvedConstructorParameters);
+        if ($params === false) {
+            throw DICallerInstantiationException::cannotResolveParameters();
+        }
+
+        // instantiate the class with the resolved parameters
+        return (new ReflectionClass($this->callable))->newInstanceArgs($params);
+    }
+
+
+
+    /**
+     * Build a ReflectionFunctionAbstract for the given callable.
+     *
+     * Caches the result.
+     *
+     * @return ReflectionMethod|null
+     * @throws DICallerInstantiationException When the class is not a class.
+     */
+    private function prepareConstructorReflectionInstance()
+    {
+        if ($this->hasResolvedConstructorReflection === false) {
+            $this->constructorReflection = $this->buildConstructorReflectionInstance($this->callable);
+            $this->hasResolvedConstructorReflection = true;
+        }
+
+        return $this->constructorReflection;
+    }
+
+    /**
+     * Build a ReflectionFunctionAbstract for the given callable.
+     *
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The class.
+     * @return ReflectionMethod|null
+     * @throws DICallerInstantiationException When the class is not a class.
+     */
+    private function buildConstructorReflectionInstance($callable)
+    {
+        if (!\is_string($callable)) {
+            throw DICallerInstantiationException::somethingOtherThanAClassWasSpecified();
+        }
+
+        if (!\class_exists($callable)) {
+            throw DICallerInstantiationException::classDoesNotExist($callable);
+        }
+
+        // check if the class has a constructor
+        $classReflection = new ReflectionClass($callable);
+        return $classReflection->getConstructor();
+    }
+
+
+
+
+
+
+
+
+
     /**
      * Check if the callable is actually callable, and that the parameters resolve.
      *
@@ -506,15 +538,18 @@ class DICaller
      */
     public function canCall(): bool
     {
+        $callableReflection = null;
         try {
-            $this->prepareReflectionInstance();
-        } catch (DICallerInvalidCallableException $e) {
+            $callableReflection = $this->prepareCallableReflectionInstance();
+        } catch (DICallerCallableException $e) {
+            return false;
         }
 
-        return ($this->resolveParameters() !== false);
+        // check the parameters resolve
+        $params = $this->resolveParameters($callableReflection, $this->resolvedCallableParameters);
+
+        return $params !== false;
     }
-
-
 
     /**
      * Call the callable (provided it resolves), substituting the parameters where necessary.
@@ -534,21 +569,15 @@ class DICaller
      * Call the callable, substituting the parameters where necessary.
      *
      * @return mixed
-     * @throws DICallerInvalidCallableException When the callable is not callable.
-     * @throws DICallerUnresolvableParametersException When the parameters could not be resolved.
+     * @throws DICallerCallableException When the callable is not callable.
      */
     public function call()
     {
-        // try / catch to make it explicit for phpcs
-        try {
-            $this->prepareReflectionInstance();
-        } catch (DICallerInvalidCallableException $e) {
-            throw $e;
-        }
+        $callableReflection = $this->prepareCallableReflectionInstance();
 
-        $params = $this->resolveParameters();
+        $params = $this->resolveParameters($callableReflection, $this->resolvedCallableParameters);
         if ($params === false) {
-            throw DICallerUnresolvableParametersException::cannotResolveParameters();
+            throw DICallerCallableException::cannotResolveParameters();
         }
 
         /** @var callable $callable For PHPStan. */
@@ -557,37 +586,117 @@ class DICaller
     }
 
     /**
-     * Instantiate the class, substituting the parameters where necessary.
+     * Build a ReflectionFunctionAbstract for the given callable.
      *
-     * @return mixed
-     * @throws DICallerInstantiationException When an invalid class was specified.
-     * @throws DICallerUnresolvableParametersException When the parameters could not be resolved.
+     * Caches the result.
+     *
+     * @return ReflectionFunctionAbstract|null
+     * @throws DICallerCallableException When the callable is not callable.
      */
-    public function instantiate()
+    private function prepareCallableReflectionInstance()
     {
-        if (!\is_string($this->callable)) {
-            throw DICallerInstantiationException::somethingOtherThanAClassWasSpecified();
+        if ($this->hasResolvedCallableReflection === false) {
+            $this->callableReflection = $this->buildCallableReflectionInstance($this->callable);
+            $this->hasResolvedCallableReflection = true;
         }
 
-        if (!\class_exists($this->callable)) {
-            throw DICallerInstantiationException::classDoesNotExist($this->callable);
+        return $this->callableReflection;
+    }
+
+    /**
+     * Build a ReflectionFunctionAbstract for the given callable.
+     *
+     * @param callable|object|array{0:string,1:string}|array{0:object,1:string}|string|null $callable The callable.
+     * @return ReflectionFunctionAbstract
+     * @throws DICallerCallableException When the callable is not callable.
+     */
+    private function buildCallableReflectionInstance($callable)
+    {
+        try {
+
+            // turn a string like this: "Namespace\Class::method" into an array so it's handled below
+            if (\is_string($callable) && \mb_strpos($callable, '::') !== false) {
+                $callable = \explode('::', $callable);
+            }
+
+            // closure
+            if ($callable instanceof Closure) {
+
+                return new ReflectionFunction($callable);
+
+            // array callable
+            } elseif (\is_array($callable) && (\count($callable) === 2)) {
+
+                $objectOrClass = \array_values($callable)[0];
+                $method = \array_values($callable)[1];
+
+                if (\is_string($objectOrClass) || \is_object($objectOrClass)) {
+
+                    $class = \is_object($objectOrClass)
+                        ? \get_class($objectOrClass)
+                        : $objectOrClass;
+
+                    if (\class_exists($class)) {
+                        if (\is_string($method)) {
+
+                            // Note: it's possible that the method doesn't exist, but __call() or __callStatic() will
+                            //       handle it. This situation isn't checked for at the moment, as it's hard to know
+                            //       whether __call() or __callStatic() will accept the method call or not
+
+                            if (\method_exists($objectOrClass, $method)) {
+                                if (\is_callable([$objectOrClass, $method])) {
+
+                                    $reflectionMethod = new ReflectionMethod($objectOrClass, $method);
+
+                                    // extra check to stop non-static methods from being called statically
+                                    // as this was actually allowed in PHP <= 7.4
+                                    $staticCheckIsOk = true;
+                                    if (\version_compare(\PHP_VERSION, '8.0.0', '<')) {
+
+                                        if (\is_string($objectOrClass)) { // i.e. is a class
+                                            if (!$reflectionMethod->isStatic()) { // and the methed is non-static
+                                                $staticCheckIsOk = false; // then it shouldn't be called statically
+                                            }
+                                        }
+                                    }
+
+                                    if ($staticCheckIsOk) {
+                                        return $reflectionMethod;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+            // instance of an invokable class (i.e. implements __invoke())
+            } elseif (\is_object($callable)) {
+
+                if (\method_exists($callable, '__invoke')) {
+                    return new ReflectionMethod($callable, '__invoke');
+                }
+
+            // string - invokable class, or function
+            } elseif (\is_string($callable)) {
+
+                // classes with __invoke() are not callable as a class...
+                // // invokable class (i.e. implements __invoke())
+                // if (class_exists($callable)) {
+                //     if (method_exists($callable, '__invoke')) {
+                //         return new ReflectionMethod($callable, '__invoke');
+                //     }
+                // }
+
+                // function
+                if (\function_exists($callable)) {
+                    return new ReflectionFunction($callable);
+                }
+            }
+
+        } catch (ReflectionException $e) {
+            throw DICallerCallableException::notCallable($e);
         }
 
-        // check if the class has a constructor
-        $classReflection = new ReflectionClass($this->callable);
-        $reflectionMethod = $classReflection->getConstructor();
-        if ($reflectionMethod === null) {
-            return new $this->callable();
-        }
-
-        $this->callableReflection = $reflectionMethod;
-
-        $params = $this->resolveParameters();
-        if ($params === false) {
-            throw DICallerUnresolvableParametersException::cannotResolveParameters();
-        }
-
-        // instantiate the class with the resolved parameters
-        return (new ReflectionClass($this->callable))->newInstanceArgs($params);
+        throw DICallerCallableException::notCallable();
     }
 }

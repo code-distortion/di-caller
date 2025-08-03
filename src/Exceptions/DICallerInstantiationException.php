@@ -29,4 +29,14 @@ class DICallerInstantiationException extends DICallerException
     {
         return new self("The class '{$class}' does not exist");
     }
+
+    /**
+     * When Caller tries to instantiate the class, but the parameters could not be resolved.
+     *
+     * @return self
+     */
+    public static function cannotResolveParameters(): self
+    {
+        return new self('The parameters could not be resolved');
+    }
 }

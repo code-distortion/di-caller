@@ -7,7 +7,7 @@ declare(strict_types=1);
 // allowing for them to be skipped if the PHP version is too low
 
 use CodeDistortion\DICaller\DICaller;
-use CodeDistortion\DICaller\Exceptions\DICallerUnresolvableParametersException;
+use CodeDistortion\DICaller\Exceptions\DICallerCallableException;
 use CodeDistortion\DICaller\Tests\Unit\Support\ChildClass;
 use CodeDistortion\DICaller\Tests\Unit\Support\ParentClass;
 
@@ -16,7 +16,7 @@ $callable = fn(ChildClass&ParentClass $param1) => func_get_args();
 $caughtException = false;
 try {
     DICaller::new($callable)->registerByType(new ParentClass())->call();
-} catch (DICallerUnresolvableParametersException) {
+} catch (DICallerCallableException) {
     $caughtException = true;
 }
 self::assertTrue($caughtException);
