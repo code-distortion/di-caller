@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 
 
+## [0.3.0] - 2025-08-03
+
+### Added
+- Added support for instantiating classes
+- Added support for the parameter types to be specified explicitly
+- Added support for callables of type "Namespace\Class::method"
+- Added support for Closure callables
+- Added exceptions `DICallerInstantiationException` and `DICallerCallableException`
+
+### Changed
+- Removed `DICallerUnresolvableParametersException` and `DICallerInvalidCallableException`. Now `DICallerInstantiationException` is thrown for instantiation related errors, and `DICallerCallableException` is thrown for callable related errors
+
+
+
 ## [0.2.3] - 2025-01-28
 
 ### Added
