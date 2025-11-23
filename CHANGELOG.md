@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 
 
+## [0.3.1] - 2025-11-24
+
+### Added
+- Added support for PHP 8.5
+
+
+
 ## [0.3.0] - 2025-08-03
 
 ### Added
