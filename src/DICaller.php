@@ -468,7 +468,8 @@ class DICaller
         if ($constructorReflection === null) {
 
             /** @var object $instance */
-            $instance = new $this->callable();
+            $class = $this->callable;
+            $instance = new $class();
             return $instance;
         }
 
@@ -616,7 +617,7 @@ class DICaller
 
             // turn a string like this: "Namespace\Class::method" into an array so it's handled below
             if (\is_string($callable) && \mb_strpos($callable, '::') !== false) {
-                $callable = \explode('::', $callable);
+                $callable = \explode('::', $callable, 2);
             }
 
             // closure
